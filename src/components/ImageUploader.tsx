@@ -163,7 +163,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
           setError(data.error || 'Processing failed');
           setProgress({ progress: 0, stage: 'error', message: data.error || 'Processing failed' });
         }
-      } catch (err) {
+      } catch (_err) {
         clearInterval(pollInterval);
         setError('Failed to track progress');
         setProgress({ progress: 0, stage: 'error', message: 'Failed to track progress' });
@@ -446,7 +446,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
                  <div className="p-3 bg-blue-100 dark:bg-blue-800/30 rounded-md">
                    <p className="text-sm text-blue-800 dark:text-blue-200">
                      <strong>Output:</strong> {Math.ceil(splitOptions.realWidthInches / splitOptions.rollPartWidthInches)} parts, 
-                     each {splitOptions.rollPartWidthInches}" × {splitOptions.realHeightInches}" at {splitOptions.targetDPI} DPI
+                     each {splitOptions.rollPartWidthInches}&quot; × {splitOptions.realHeightInches}&quot; at {splitOptions.targetDPI} DPI
                      <br />
                      <strong>Part dimensions:</strong> {Math.round(splitOptions.rollPartWidthInches * (splitOptions.targetDPI || 300))} × {Math.round(splitOptions.realHeightInches * (splitOptions.targetDPI || 300))} pixels
                    </p>
@@ -617,8 +617,8 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
           <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
-                <p><strong>Original dimensions:</strong> {splitResult.metadata.originalRealWidth}" × {splitResult.metadata.originalRealHeight}"</p>
-                <p><strong>Roll part width:</strong> {splitResult.metadata.rollPartWidth}"</p>
+                <p><strong>Original dimensions:</strong> {splitResult.metadata.originalRealWidth}&quot; × {splitResult.metadata.originalRealHeight}&quot;</p>
+                <p><strong>Roll part width:</strong> {splitResult.metadata.rollPartWidth}&quot;</p>
               </div>
               <div>
                 <p><strong>Target DPI:</strong> {splitResult.metadata.targetDPI}</p>

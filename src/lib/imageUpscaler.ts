@@ -61,7 +61,7 @@ class ImageUpscalerService {
   private cleanupMemory() {
     // Force garbage collection if available
     if (typeof window !== 'undefined' && 'gc' in window) {
-      (window as any).gc();
+      (window as typeof window & { gc: () => void }).gc();
     }
   }
 
@@ -136,7 +136,7 @@ class ImageUpscalerService {
           // Draw processed chunk back to result canvas
           const chunkImg = new Image();
           await new Promise((resolve) => {
-            chunkImg.onload = resolve as any;
+            chunkImg.onload = () => resolve(undefined);
             chunkImg.src = upscaledChunk as string;
           });
           
@@ -228,7 +228,7 @@ class ImageUpscalerService {
       targetDPI = 300,
       quality = 0.95,
       outputFormat = 'png',
-      maxFileSize = 50,
+      // maxFileSize = 50,
       outputWidth,
       outputHeight,
       dimensionUnit = 'px',
@@ -247,8 +247,8 @@ class ImageUpscalerService {
       if (typeof imageData === 'string') {
         img = new Image();
         await new Promise((resolve, reject) => {
-          img.onload = resolve as any;
-          img.onerror = reject as any;
+          img.onload = () => resolve(undefined);
+          img.onerror = (error) => reject(error);
           img.src = imageData;
         });
       } else if (imageData instanceof HTMLImageElement) {
@@ -264,7 +264,7 @@ class ImageUpscalerService {
       const dpiScale = this.calculateDPIScale(currentDPI, targetDPI);
       
       // Calculate required upscaling
-      const requiredScale = Math.max(dpiScale, 1);
+      // const requiredScale = Math.max(dpiScale, 1);
       
       this.updateProgress({ progress: 40, stage: 'processing', message: 'Upscaling image...' });
 
@@ -303,7 +303,7 @@ class ImageUpscalerService {
       if (typeof outputWidthPx === 'number' || typeof outputHeightPx === 'number') {
         const baseImg = new Image();
         await new Promise((resolve) => {
-          baseImg.onload = resolve as any;
+          baseImg.onload = () => resolve(undefined);
           baseImg.src = upscaledImage as string;
         });
 
@@ -365,7 +365,7 @@ class ImageUpscalerService {
         // Apply additional scaling using canvas for extreme DPI requirements
         const tempImg = new Image();
         await new Promise((resolve) => {
-          tempImg.onload = resolve as any;
+          tempImg.onload = () => resolve(undefined);
           tempImg.src = upscaledImage as string;
         });
 
@@ -469,7 +469,7 @@ class ImageUpscalerService {
       // If we have explicit dimensions, use them for a more accurate estimate
       if (outputWidthPx && outputHeightPx) {
         // Get a rough estimate of original dimensions
-        const img = new Image();
+        // const img = new Image();
         // We can't actually load the image here, so we'll make a rough estimate
         // based on the file size and assuming average compression
         const avgPixelBytes = 0.1; // Very rough estimate for compressed images
@@ -540,8 +540,8 @@ class ImageUpscalerService {
 
       const img = new Image();
       await new Promise((resolve, reject) => {
-        img.onload = resolve as any;
-        img.onerror = reject as any;
+        img.onload = () => resolve(undefined);
+        img.onerror = (error) => reject(error);
         img.src = imageData;
       });
 
@@ -561,7 +561,7 @@ class ImageUpscalerService {
       
       // Calculate how many pixels in the original image correspond to each part
       const pixelsPerInchOriginalWidth = originalWidthPx / realWidthInches;
-      const pixelsPerInchOriginalHeight = originalHeightPx / realHeightInches;
+      // const pixelsPerInchOriginalHeight = originalHeightPx / realHeightInches;
       
       const partWidthInOriginal = Math.round(rollPartWidthInches * pixelsPerInchOriginalWidth);
       const partHeightInOriginal = originalHeightPx; // Full height for each part
@@ -623,7 +623,7 @@ class ImageUpscalerService {
           if (maxScaleFactor > 4) {
             const tempImg = new Image();
             await new Promise((resolve) => {
-              tempImg.onload = resolve as any;
+              tempImg.onload = () => resolve(undefined);
               tempImg.src = upscaledPart;
             });
             
@@ -648,7 +648,7 @@ class ImageUpscalerService {
           
           const partImg = new Image();
           await new Promise((resolve) => {
-            partImg.onload = resolve as any;
+            partImg.onload = () => resolve(undefined);
             partImg.src = partDataUrl;
           });
           

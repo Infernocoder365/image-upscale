@@ -31,8 +31,9 @@ async function updateProgress(jobId: string, progress: number, stage: string, me
 }
 
 // Initialize upscaler
-let upscaler: InstanceType<typeof Upscaler> | null = null;
+// const upscaler: InstanceType<typeof Upscaler> | null = null;
 
+/*
 async function getUpscaler() {
   if (!upscaler) {
     upscaler = new Upscaler({
@@ -44,6 +45,7 @@ async function getUpscaler() {
   }
   return upscaler;
 }
+*/
 
 function convertToPixels(value: number, unit: string, dpi: number): number {
   switch (unit) {
@@ -170,7 +172,7 @@ async function processImageChunked(
   // Composite all chunks into final image
   const finalImage = await outputImage
     .composite(processedChunks)
-    .toFormat(outputFormat as any, {
+    .toFormat(outputFormat as keyof sharp.FormatEnum, {
       quality: Math.round(quality * 100),
       progressive: true
     })
@@ -198,9 +200,9 @@ export async function POST(request: NextRequest) {
       outputWidth,
       outputHeight,
       dimensionUnit = 'px',
-      targetDPI = 300,
-      outputFormat = 'jpeg',
-      quality = 0.9
+      targetDPI = 300
+      // outputFormat = 'jpeg'
+      // quality = 0.9
     } = options;
     
     await updateProgress(jobId, 0, 'starting', 'Initializing image processing...');

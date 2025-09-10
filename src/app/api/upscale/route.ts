@@ -16,8 +16,9 @@ interface UpscaleOptions {
 }
 
 // Initialize upscaler with server-side model
-let upscaler: InstanceType<typeof Upscaler> | null = null;
+// const upscaler: InstanceType<typeof Upscaler> | null = null;
 
+/*
 async function getUpscaler() {
   if (!upscaler) {
     upscaler = new Upscaler({
@@ -29,6 +30,7 @@ async function getUpscaler() {
   }
   return upscaler;
 }
+*/
 
 // Convert dimensions to pixels based on unit and DPI
 function convertToPixels(value: number, unit: string, dpi: number): number {
@@ -137,7 +139,7 @@ export async function POST(request: NextRequest) {
           kernel: sharp.kernel.lanczos3,
           fit: 'fill'
         })
-        .toFormat(outputFormat as any, { 
+        .toFormat(outputFormat as keyof sharp.FormatEnum, { 
           quality: Math.round(quality * 100),
           progressive: true
         })
@@ -151,7 +153,7 @@ export async function POST(request: NextRequest) {
           kernel: sharp.kernel.lanczos3,
           fit: 'fill'
         })
-        .toFormat(outputFormat as any, { 
+        .toFormat(outputFormat as keyof sharp.FormatEnum, { 
           quality: Math.round(quality * 100),
           progressive: true
         })
