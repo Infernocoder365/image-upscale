@@ -131,7 +131,11 @@ class ImageUpscalerService {
           
           // Process chunk with upscaler
           const chunkDataUrl = chunkCanvas.toDataURL();
-          const upscaledChunk = await this.upscaler!.upscale(chunkDataUrl);
+          const upscaledChunk = await this.upscaler!.upscale(chunkDataUrl, {
+            output: 'base64',
+            patchSize: 64,
+            padding: 2
+          });
           
           // Draw processed chunk back to result canvas
           const chunkImg = new Image();
@@ -275,11 +279,13 @@ class ImageUpscalerService {
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0);
 
-      // Check if we need chunked processing for large images
+      // Check if we need chunked processing for large images or to avoid WebGL limits
       const pixelCount = canvas.width * canvas.height;
+      const outputPixelCount = (canvas.width * 4) * (canvas.height * 4); // 4x upscale
       let upscaledImage: string;
       
-      if (pixelCount > 4000000) { // 4MP threshold for chunking
+      // Use chunked processing for large images OR when 4x output would hit WebGL texture limits
+      if (pixelCount > 4000000 || canvas.width >= 1024 || canvas.height >= 1024) {
         upscaledImage = await this.processImageInChunks(canvas);
       } else {
         // Use upscaler for AI-based enhancement on smaller images
@@ -616,24 +622,29 @@ class ImageUpscalerService {
         const maxScaleFactor = Math.max(scaleFactorWidth, scaleFactorHeight);
         
         if (maxScaleFactor > 1.5) {
-          // Use AI upscaling for significant enlargement
-          upscaledPart = await this.upscaler!.upscale(partDataUrl) as string;
+          // Always use AI upscaling first (4x), then resize to exact target if needed
+          upscaledPart = await this.upscaler!.upscale(partDataUrl, {
+            output: 'base64',
+            patchSize: 64,
+            padding: 2
+          }) as string;
           
-          // If we need additional scaling after AI upscaling, apply it
-          if (maxScaleFactor > 4) {
-            const tempImg = new Image();
-            await new Promise((resolve) => {
-              tempImg.onload = () => resolve(undefined);
-              tempImg.src = upscaledPart;
-            });
-            
+          // If we need different scaling after AI upscaling, apply it
+          const upscaledImg = new Image();
+          await new Promise((resolve) => {
+            upscaledImg.onload = () => resolve(undefined);
+            upscaledImg.src = upscaledPart;
+          });
+          
+          // Check if we need to resize the 4x upscaled result to match target dimensions
+          if (upscaledImg.width !== partWidthPx || upscaledImg.height !== partHeightPx) {
             const finalCanvas = document.createElement('canvas');
             finalCanvas.width = partWidthPx;
             finalCanvas.height = partHeightPx;
             const finalCtx = finalCanvas.getContext('2d')!;
             finalCtx.imageSmoothingEnabled = true;
             finalCtx.imageSmoothingQuality = 'high';
-            finalCtx.drawImage(tempImg, 0, 0, partWidthPx, partHeightPx);
+            finalCtx.drawImage(upscaledImg, 0, 0, partWidthPx, partHeightPx);
             
             upscaledPart = finalCanvas.toDataURL(`image/${outputFormat}`, quality);
           }
