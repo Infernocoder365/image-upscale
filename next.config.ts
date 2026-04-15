@@ -4,6 +4,25 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  experimental: {
+    outputFileTracingIncludes: {
+      // Bundle model weights and WASM runtime into every API route that upscales.
+      // Without this, Vercel strips these files because static analysis can't
+      // detect the dynamic fs.readFileSync calls at build time.
+      '/api/upscale': [
+        './node_modules/@upscalerjs/esrgan-thick/models/**/*',
+        './node_modules/@tensorflow/tfjs-backend-wasm/wasm-out/**/*',
+      ],
+      '/api/upscale/chunked': [
+        './node_modules/@upscalerjs/esrgan-thick/models/**/*',
+        './node_modules/@tensorflow/tfjs-backend-wasm/wasm-out/**/*',
+      ],
+      '/api/upscale/split': [
+        './node_modules/@upscalerjs/esrgan-thick/models/**/*',
+        './node_modules/@tensorflow/tfjs-backend-wasm/wasm-out/**/*',
+      ],
+    },
+  },
   serverExternalPackages: [
     'sharp',
     'upscaler',
