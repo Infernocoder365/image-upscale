@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', {}\\), indent=2\\)\\)\")",
+      "Bash(npm install:*)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('c:/Users/KOC/Documents/New folder/image-upscale/public/models/x4/model.json'\\)\\); print\\('format:', d.get\\('format'\\)\\); print\\('keys:', list\\(d.keys\\(\\)\\)[:8]\\); topo = d.get\\('modelTopology', {}\\); print\\('topo keys:', list\\(topo.keys\\(\\)\\)[:5]\\)\")",
+      "Bash(node -e \"const d=require\\('c:/Users/KOC/Documents/New folder/image-upscale/public/models/x4/model.json'\\); console.log\\('format:', d.format\\); console.log\\('keys:', Object.keys\\(d\\)\\); console.log\\('weightsManifest paths:', d.weightsManifest?.[0]?.paths?.slice\\(0,3\\)\\);\")",
+      "Bash(node -e ':*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\KOC\\Documents\\New folder\\image-upscale\\node_modules\\@upscalerjs\\esrgan-thick\\models\\x4"
+    ]
+  }
+}

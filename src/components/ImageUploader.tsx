@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
-import { imageUpscaler, UpscaleProgress, UpscaleOptions, SplitUpscaleOptions, SplitUpscaleResult } from '@/lib/imageUpscaler';
+import type { UpscaleProgress, UpscaleOptions, SplitUpscaleOptions, SplitUpscaleResult } from '@/lib/imageUpscaler';
 
 interface ImageUploaderProps {
   onUpscaleComplete?: (result: string) => void;
@@ -14,9 +14,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
   const [progress, setProgress] = useState<UpscaleProgress | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [useBackend, setUseBackend] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [options, setOptions] = useState<UpscaleOptions>({
     targetDPI: 300,
@@ -82,7 +80,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
     }
 
     // Check file size (50MB limit)
-    if (!imageUpscaler.isFileSizeSupported(file, 50)) {
+    if (file.size > 50 * 1024 * 1024) {
       onError?.('File size too large. Please select a file smaller than 50MB');
       return;
     }
@@ -134,8 +132,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
       }
     } catch (err) {
       console.error('Backend processing failed:', err);
-      setError(err instanceof Error ? err.message : 'Processing failed');
-      setProgress({ progress: 0, stage: 'error', message: 'Processing failed' });
+            setProgress({ progress: 0, stage: 'error', message: 'Processing failed' });
     }
   };
 
@@ -153,19 +150,18 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
         if (data.status === 'completed') {
           clearInterval(pollInterval);
           if (data.result) {
-            const imageUrl = `data:image/${options.outputFormat || 'jpeg'};base64,${data.result}`;
-            setProcessedImage(imageUrl);
+            const fmt = options.outputFormat || 'jpeg';
+            const mime = fmt === 'pdf' ? 'application/pdf' : `image/${fmt}`;
+            setProcessedImage(`data:${mime};base64,${data.result}`);
           }
           // Clean up job
           await fetch(`/api/upscale/progress?jobId=${jobId}`, { method: 'DELETE' });
         } else if (data.status === 'error') {
           clearInterval(pollInterval);
-          setError(data.error || 'Processing failed');
           setProgress({ progress: 0, stage: 'error', message: data.error || 'Processing failed' });
         }
       } catch (_err) {
         clearInterval(pollInterval);
-        setError('Failed to track progress');
         setProgress({ progress: 0, stage: 'error', message: 'Failed to track progress' });
       }
     }, 1000);
@@ -175,20 +171,57 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
     if (!selectedFile) return;
 
     setIsProcessing(true);
-    setProgress({ progress: 0, stage: 'starting' });
+    setProgress({ progress: 0, stage: 'starting', message: 'Starting split upscale…' });
     setSplitResult(null);
-    setError(null);
+    setJobId(null);
+
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+    formData.append('options', JSON.stringify(splitOptions));
 
     try {
-      imageUpscaler.setProgressCallback(setProgress);
-      const result = await imageUpscaler.splitAndUpscaleImage(selectedFile, splitOptions);
-      setSplitResult(result);
-      setProgress({ progress: 100, stage: 'complete', message: `Successfully created ${result.totalParts} upscaled parts!` });
+      const response = await fetch('/api/upscale/split', { method: 'POST', body: formData });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Split processing failed');
+      }
+      const data = await response.json();
+      setJobId(data.jobId);
+
+      // Poll until done; on completion parse result as SplitUpscaleResult
+      const pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/upscale/progress?jobId=${data.jobId}`);
+          const job = await res.json();
+          setProgress({ progress: job.progress, stage: job.stage, message: job.message });
+
+          if (job.status === 'completed') {
+            clearInterval(pollInterval);
+            setIsProcessing(false);
+            if (job.result) {
+              const parsed: SplitUpscaleResult = JSON.parse(job.result);
+              // Convert raw base64 to data-URLs for display/download
+              const fmt = splitOptions.outputFormat || 'png';
+              parsed.parts = parsed.parts.map(
+                (b64) => `data:image/${fmt};base64,${b64}`
+              );
+              setSplitResult(parsed);
+            }
+            await fetch(`/api/upscale/progress?jobId=${data.jobId}`, { method: 'DELETE' });
+          } else if (job.status === 'error') {
+            clearInterval(pollInterval);
+            setIsProcessing(false);
+            setProgress({ progress: 0, stage: 'error', message: job.error || 'Processing failed' });
+          }
+        } catch {
+          clearInterval(pollInterval);
+          setIsProcessing(false);
+          setProgress({ progress: 0, stage: 'error', message: 'Failed to track progress' });
+        }
+      }, 1000);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setError(errorMessage);
       setProgress({ progress: 0, stage: 'error', message: errorMessage });
-    } finally {
       setIsProcessing(false);
     }
   }, [selectedFile, splitOptions]);
@@ -204,32 +237,25 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
     setIsProcessing(true);
     setProgress({ progress: 0, stage: 'loading' });
     setProcessedImage(null);
-    setError(null);
     setJobId(null);
 
     try {
-      if (useBackend) {
-        // Determine if we need chunked processing for very large outputs
-        const outputWidthPx = options.outputWidth ? 
-          (options.dimensionUnit === 'in' ? options.outputWidth * (options.targetDPI || 300) :
-           options.dimensionUnit === 'cm' ? options.outputWidth * (options.targetDPI || 300) / 2.54 :
-           options.outputWidth) : 0;
-        const outputHeightPx = options.outputHeight ? 
-          (options.dimensionUnit === 'in' ? options.outputHeight * (options.targetDPI || 300) :
-           options.dimensionUnit === 'cm' ? options.outputHeight * (options.targetDPI || 300) / 2.54 :
-           options.outputHeight) : 0;
-        
-        const needsChunking = (outputWidthPx > 20000 || outputHeightPx > 20000 || 
-                              (outputWidthPx * outputHeightPx) > 100000000);
-        
-        await processWithBackend(needsChunking);
-      } else {
-        // Fallback to client-side processing
-        imageUpscaler.setProgressCallback(setProgress);
-        const result = await imageUpscaler.upscaleForPrint(selectedFile, options);
-        onUpscaleComplete?.(result);
-        setProgress({ progress: 100, stage: 'complete', message: 'Upscaling completed!' });
-      }
+      // Determine if output is large enough to need chunked processing
+      const outputWidthPx = options.outputWidth
+        ? options.dimensionUnit === 'in' ? options.outputWidth * (options.targetDPI || 300)
+          : options.dimensionUnit === 'cm' ? options.outputWidth * (options.targetDPI || 300) / 2.54
+          : options.outputWidth
+        : 0;
+      const outputHeightPx = options.outputHeight
+        ? options.dimensionUnit === 'in' ? options.outputHeight * (options.targetDPI || 300)
+          : options.dimensionUnit === 'cm' ? options.outputHeight * (options.targetDPI || 300) / 2.54
+          : options.outputHeight
+        : 0;
+      const needsChunking =
+        outputWidthPx > 20000 || outputHeightPx > 20000 ||
+        outputWidthPx * outputHeightPx > 100_000_000;
+
+      await processWithBackend(needsChunking);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       onError?.(errorMessage);
@@ -237,7 +263,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
     } finally {
       setIsProcessing(false);
     }
-  }, [selectedFile, options, onUpscaleComplete, onError, useBackend, useSplitUpscale, handleSplitUpscale]);
+  }, [selectedFile, options, onUpscaleComplete, onError, useSplitUpscale, handleSplitUpscale]);
 
   const resetUploader = useCallback(() => {
     setSelectedFile(null);
@@ -245,14 +271,12 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
     setProgress(null);
     setIsProcessing(false);
     setSplitResult(null);
-    setError(null);
+    setProcessedImage(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   }, []);
 
-  const estimatedSize = selectedFile ? imageUpscaler.estimateOutputSize(selectedFile, options.targetDPI, options) : 0;
-  const estimatedSizeMB = (estimatedSize / (1024 * 1024)).toFixed(1);
 
   return (
     <div className="w-full max-w-4xl mx-auto p-6">
@@ -433,12 +457,13 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
                      </label>
                      <select
                        value={splitOptions.outputFormat}
-                       onChange={(e) => setSplitOptions(prev => ({ ...prev, outputFormat: e.target.value as 'png' | 'jpeg' | 'webp' }))}
+                       onChange={(e) => setSplitOptions(prev => ({ ...prev, outputFormat: e.target.value as 'png' | 'jpeg' | 'webp' | 'pdf' }))}
                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                      >
-                       <option value="png">PNG (Recommended)</option>
+                       <option value="png">PNG</option>
                        <option value="jpeg">JPEG</option>
                        <option value="webp">WebP</option>
+                       <option value="pdf">PDF (Print)</option>
                      </select>
                    </div>
                  </div>
@@ -474,36 +499,17 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Output Format</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Output Format</label>
                 <select
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   value={options.outputFormat}
-                  onChange={(e) => setOptions(prev => ({ ...prev, outputFormat: e.target.value as 'png' | 'jpeg' | 'webp' }))}
+                  onChange={(e) => setOptions(prev => ({ ...prev, outputFormat: e.target.value as 'png' | 'jpeg' | 'webp' | 'pdf' }))}
                 >
-                  <option value="png">PNG (Recommended)</option>
+                  <option value="png">PNG</option>
                   <option value="jpeg">JPEG</option>
                   <option value="webp">WebP</option>
+                  <option value="pdf">PDF (Print)</option>
                 </select>
-              </div>
-
-              {/* Processing Mode Toggle */}
-              <div>
-                <label className="flex items-center space-x-3">
-                  <input
-                    type="checkbox"
-                    checked={useBackend}
-                    onChange={(e) => setUseBackend(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Use server-side processing (recommended for large images)
-                  </span>
-                </label>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {useBackend 
-                    ? "Server processing can handle very large images (up to 200x200 inches) with chunked processing."
-                    : "Browser processing is limited by memory and canvas size restrictions."}
-                </p>
               </div>
 
               {/* Output Dimensions */}
@@ -596,11 +602,6 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
                 />
               </div>
 
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
-                  <strong>Estimated output size:</strong> ~{estimatedSizeMB} MB
-                </p>
-              </div>
             </div>
             )}
           </div>
@@ -706,7 +707,7 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
             {progress.message && (
               <p className="text-sm text-gray-600 dark:text-gray-400">{progress.message}</p>
             )}
-            {jobId && useBackend && (
+            {jobId && (
               <p className="text-xs text-blue-600 dark:text-blue-400">Job ID: {jobId}</p>
             )}
           </div>
@@ -787,6 +788,39 @@ export default function ImageUploader({ onUpscaleComplete, onError }: ImageUploa
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Result */}
+      {processedImage && (
+        <div className="mt-6 space-y-4">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Result</h3>
+          {options.outputFormat === 'pdf' ? (
+            <div className="border rounded-lg p-6 bg-gray-50 dark:bg-gray-800 flex items-center gap-4">
+              <div className="text-5xl">📄</div>
+              <div>
+                <p className="font-medium text-gray-800 dark:text-gray-200">Print-ready PDF ready</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Page sized at {options.targetDPI || 300} DPI — open in any PDF viewer or send to print.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-800">
+              <img
+                src={processedImage}
+                alt="Upscaled result"
+                className="w-full object-contain max-h-[600px]"
+              />
+            </div>
+          )}
+          <a
+            href={processedImage}
+            download={`upscaled.${options.outputFormat || 'png'}`}
+            className="inline-block bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded-lg transition-colors duration-200"
+          >
+            Download Result
+          </a>
         </div>
       )}
 

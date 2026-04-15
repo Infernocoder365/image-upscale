@@ -5,7 +5,7 @@ export type DimensionUnit = 'px' | 'in' | 'cm';
 
 export interface UpscaleOptions {
   targetDPI?: number;
-  outputFormat?: 'png' | 'jpeg' | 'webp';
+  outputFormat?: 'png' | 'jpeg' | 'webp' | 'pdf';
   quality?: number;
   maxFileSize?: number;
   outputWidth?: number;
@@ -19,7 +19,7 @@ export interface SplitUpscaleOptions {
   realHeightInches: number;
   rollPartWidthInches: number;
   targetDPI?: number;
-  outputFormat?: 'png' | 'jpeg' | 'webp';
+  outputFormat?: 'png' | 'jpeg' | 'webp' | 'pdf';
   quality?: number;
 }
 
@@ -49,8 +49,12 @@ class ImageUpscalerService {
   private progressCallback?: (progress: UpscaleProgress) => void;
 
   constructor() {
+    if (typeof window === 'undefined') return; // Skip on server (SSR)
     this.upscaler = new Upscaler({
-      model,
+      model: {
+        ...model,
+        path: '/models/x4/model.json',
+      },
     });
   }
 
@@ -101,10 +105,10 @@ class ImageUpscalerService {
     if (width * height > 4000000) { // 4MP threshold
       this.updateProgress({ progress: 0.3, stage: 'processing', message: 'Processing large image in chunks...' });
       
-      // Create a new canvas for the result
+      // Create a new canvas for the result (ESRGAN outputs 4x the input size)
       const resultCanvas = document.createElement('canvas');
-      resultCanvas.width = width;
-      resultCanvas.height = height;
+      resultCanvas.width = width * 4;
+      resultCanvas.height = height * 4;
       const resultCtx = resultCanvas.getContext('2d')!;
       
       // Process in chunks
