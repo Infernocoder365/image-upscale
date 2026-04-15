@@ -2,8 +2,7 @@
  * Server-side AI image upscaling using ESRGAN 4x via UpscalerJS model.
  *
  * Uses @tensorflow/tfjs with WASM backend for inference — no native build
- * tools required. For faster inference in production, install
- * @tensorflow/tfjs-node (requires MSVC on Windows / gcc on Linux).
+ * tools required (works on Vercel and Windows).
  */
 import * as path from 'path';
 import * as fs from 'fs';

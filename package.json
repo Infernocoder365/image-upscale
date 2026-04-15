@@ -13,7 +13,6 @@
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-core": "^4.22.0",
     "@tensorflow/tfjs-layers": "^4.22.0",
-    "@tensorflow/tfjs-node": "^4.22.0",
     "@types/uuid": "^10.0.0",
     "@upscalerjs/esrgan-thick": "^1.0.0-beta.16",
     "next": "15.5.2",

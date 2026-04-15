@@ -15,7 +15,6 @@ const nextConfig: NextConfig = {
     '@tensorflow/tfjs-backend-cpu',
     '@tensorflow/tfjs-backend-webgl',
     '@tensorflow/tfjs-backend-wasm',
-    '@tensorflow/tfjs-node',
   ],
 };
 
