@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
-import { aiUpscaleBuffer } from '@/lib/serverUpscaler';
+
+// Vercel: allow up to 60 s (Pro plan). Hobby plan is capped at 10 s regardless.
+export const maxDuration = 60;
 
 sharp.cache(false);
 sharp.concurrency(1);
@@ -61,27 +63,21 @@ async function processSplit(
   const totalParts = Math.ceil(realWidthInches / rollPartWidthInches);
   const pixelsPerInch = originalWidth / realWidthInches;
 
-  await updateProgress(
-    jobId,
-    5,
-    'chunking',
-    `Splitting into ${totalParts} parts…`
-  );
+  await updateProgress(jobId, 5, 'chunking', `Splitting into ${totalParts} parts…`);
 
   const parts: string[] = [];
   const partWidthPx = Math.round(rollPartWidthInches * targetDPI);
   const partHeightPx = Math.round(realHeightInches * targetDPI);
 
   for (let i = 0; i < totalParts; i++) {
-    const progressPct = 5 + Math.round((i / totalParts) * 88); // 5–93 %
+    const progressPct = 5 + Math.round((i / totalParts) * 88);
     await updateProgress(
       jobId,
       progressPct,
       'upscaling',
-      `AI upscaling part ${i + 1}/${totalParts}…`
+      `Upscaling part ${i + 1}/${totalParts}…`
     );
 
-    // Source region in the original image
     const srcLeft = Math.round(i * rollPartWidthInches * pixelsPerInch);
     const actualPartWidthInches = Math.min(
       rollPartWidthInches,
@@ -90,21 +86,12 @@ async function processSplit(
     const srcWidth = Math.round(actualPartWidthInches * pixelsPerInch);
     const srcHeight = originalHeight;
 
-    // Extract this part from the original
-    const partBuffer = await sharp(buffer, { limitInputPixels: 500_000_000 })
-      .extract({ left: srcLeft, top: 0, width: srcWidth, height: srcHeight })
-      .toBuffer();
-
-    // AI-upscale (always 4×)
-    const aiResult = await aiUpscaleBuffer(partBuffer, { patchSize: 32, padding: 4 });
-
-    // Resize from native 4× to the exact target DPI dimensions
     const targetW = Math.round(actualPartWidthInches * targetDPI);
     const targetH = partHeightPx;
 
-    const encodedPart = await sharp(aiResult.rawBuffer, {
-      raw: { width: aiResult.width, height: aiResult.height, channels: 3 },
-    })
+    // Extract this slice, resize to target DPI dimensions with Lanczos3
+    const encodedPart = await sharp(buffer, { limitInputPixels: 500_000_000 })
+      .extract({ left: srcLeft, top: 0, width: srcWidth, height: srcHeight })
       .resize(targetW, targetH, { kernel: sharp.kernel.lanczos3, fit: 'fill' })
       .toFormat(outputFormat as keyof sharp.FormatEnum, {
         quality: Math.round(quality * 100),
@@ -163,8 +150,11 @@ export async function POST(request: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Fire and forget — client polls for progress
-    processSplit(buffer, options, jobId).catch(async (err) => {
+    // Process synchronously before returning — Vercel kills background tasks
+    // when the HTTP response is sent, so fire-and-forget does not work there.
+    try {
+      await processSplit(buffer, options, jobId);
+    } catch (err) {
       console.error('Split processing error:', err);
       await updateProgress(
         jobId,
@@ -175,12 +165,12 @@ export async function POST(request: NextRequest) {
         undefined,
         err instanceof Error ? err.message : String(err)
       );
-    });
+    }
 
     return NextResponse.json({
       jobId,
       type: 'split',
-      message: 'Split upscale started',
+      message: 'Split upscale complete',
       totalParts: Math.ceil(options.realWidthInches / options.rollPartWidthInches),
     });
   } catch (error) {

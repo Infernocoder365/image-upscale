@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 import { PDFDocument } from 'pdf-lib';
-import { aiUpscaleBuffer } from '@/lib/serverUpscaler';
+
+// Vercel: allow up to 60 s (Pro plan). Hobby plan is capped at 10 s regardless.
+export const maxDuration = 60;
 
 // Configure Sharp for large images
 sharp.cache(false);
@@ -73,19 +75,16 @@ export async function POST(request: NextRequest) {
     } = options;
 
     const isPdf = outputFormat === 'pdf';
-    // For PDF we encode the raster image as JPEG before embedding
     const rasterFormat = isPdf ? 'jpeg' : outputFormat;
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Get original dimensions
     const metadata = await sharp(buffer, { limitInputPixels: 500_000_000 }).metadata();
     const originalWidth = metadata.width!;
     const originalHeight = metadata.height!;
 
     console.log(`Processing image: ${originalWidth}x${originalHeight}px`);
 
-    // Calculate target dimensions
     let targetWidth: number;
     let targetHeight: number;
 
@@ -107,34 +106,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // --- AI Upscaling via ESRGAN 4× (UpscalerJS model) ---
-    // The model always produces 4× output. If a different target size is
-    // requested we then resize the AI output with Sharp.
-    console.log('Starting AI upscale (ESRGAN 4×)…');
-
-    const aiResult = await aiUpscaleBuffer(buffer, {
-      // Use larger patches for better quality; increase if RAM allows.
-      patchSize: 32,
-      padding: 4,
-    });
-
-    console.log(`AI upscale complete: ${aiResult.width}x${aiResult.height}px`);
-
-    // Build a Sharp pipeline from the raw RGB pixel buffer produced by ESRGAN
-    let pipeline = sharp(aiResult.rawBuffer, {
-      raw: { width: aiResult.width, height: aiResult.height, channels: 3 },
-    });
-
-    // Resize to requested target if it differs from the native 4× output
-    if (targetWidth !== aiResult.width || targetHeight !== aiResult.height) {
-      pipeline = pipeline.resize(targetWidth, targetHeight, {
+    // High-quality Lanczos3 upscale via Sharp (libvips) — completes in milliseconds
+    const rasterBuffer = await sharp(buffer, { limitInputPixels: 500_000_000 })
+      .resize(targetWidth, targetHeight, {
         kernel: sharp.kernel.lanczos3,
         fit: 'fill',
-      });
-    }
-
-    // Encode the raster image (for PDF we embed JPEG inside the PDF)
-    const rasterBuffer = await pipeline
+      })
       .withMetadata({ density: targetDPI })
       .toFormat(rasterFormat as keyof sharp.FormatEnum, {
         quality: Math.round(quality * 100),
@@ -142,12 +119,12 @@ export async function POST(request: NextRequest) {
       })
       .toBuffer();
 
-    // --- PDF output ---
+    console.log(`Upscale complete: ${targetWidth}x${targetHeight}px, ${rasterBuffer.length} bytes`);
+
     if (isPdf) {
       const pdfDoc = await PDFDocument.create();
       const jpgImage = await pdfDoc.embedJpg(rasterBuffer);
 
-      // PDF points = pixels / DPI * 72
       const pageWidthPt = (targetWidth / targetDPI) * 72;
       const pageHeightPt = (targetHeight / targetDPI) * 72;
 
@@ -162,20 +139,17 @@ export async function POST(request: NextRequest) {
           'Content-Type': 'application/pdf',
           'Content-Length': pdfBytes.length.toString(),
           'Content-Disposition': 'attachment; filename="upscaled.pdf"',
-          'X-Upscale-Method': 'ESRGAN-4x',
+          'X-Upscale-Method': 'Lanczos3',
         },
       });
     }
-
-    // --- Image output ---
-    console.log(`Output size: ${rasterBuffer.length} bytes`);
 
     return new NextResponse(new Uint8Array(rasterBuffer), {
       headers: {
         'Content-Type': `image/${rasterFormat}`,
         'Content-Length': rasterBuffer.length.toString(),
         'Content-Disposition': `attachment; filename="upscaled.${rasterFormat}"`,
-        'X-Upscale-Method': 'ESRGAN-4x',
+        'X-Upscale-Method': 'Lanczos3',
       },
     });
   } catch (error) {
@@ -192,11 +166,11 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    message: 'Image upscaling API endpoint (ESRGAN 4× AI)',
+    message: 'Image upscaling API endpoint (Lanczos3 via Sharp/libvips)',
     maxDimension: 50000,
     maxPixels: 500_000_000,
     supportedFormats: ['jpeg', 'png', 'webp', 'pdf'],
     supportedUnits: ['px', 'in', 'cm'],
-    upscaleMethod: 'ESRGAN-4x (UpscalerJS model)',
+    upscaleMethod: 'Lanczos3',
   });
 }
